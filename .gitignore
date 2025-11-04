@@ -1,0 +1,59 @@
+# -------------------------
+# PYTHON / BACKEND
+# -------------------------
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+venv/
+
+# Environment & Secrets
+.env
+.env.*
+backend/.env
+backend/.env.*
+
+# Model artifacts & large files
+backend/model_artifacts/*
+# Uncomment specific CSVs if you want to track them
+# !backend/model_artifacts/roc_curve.csv
+# !backend/model_artifacts/pr_curve.csv
+# !backend/model_artifacts/top_risks.csv
+
+# MongoDB cache / local logs
+*.log
+*.db
+*.sqlite
+
+# Debug/Temp files
+debug.log
+tmp/
+logs/
+
+# -------------------------
+# FRONTEND BUILD + NODE MODULES
+# -------------------------
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.*
+frontend/.vite/
+
+# -------------------------
+# OS / EDITOR
+# -------------------------
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# -------------------------
+# OPTIONAL LOCAL ASSETS
+# -------------------------
+creditcard.csv
+WGAN.pdf
+creditcard.csv
+WGAN.pdf
+node_modules/

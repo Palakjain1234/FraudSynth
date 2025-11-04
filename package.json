@@ -1,0 +1,10 @@
+{
+  "name": "fraudsynth-root",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -k -n API,WEB -c yellow,cyan \".\\\\.venv\\\\Scripts\\\\python.exe -m uvicorn backend.main:app --reload --port 8000\" \"npm --prefix frontend run dev\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
