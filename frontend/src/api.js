@@ -65,7 +65,7 @@
 // }
 // src/api.js
 
-const BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000'
+const BASE = 'http://127.0.0.1:8000'
 
 // --- helpers ---
 async function parseMaybeJson(res) {
