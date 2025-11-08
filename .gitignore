@@ -1,7 +1,7 @@
 # -------------------------
 # PYTHON / BACKEND
 # -------------------------
-__pycache__/
+
 *.pyc
 *.pyo
 *.pyd
@@ -16,7 +16,7 @@ backend/.env
 backend/.env.*
 
 # Model artifacts & large files
-backend/model_artifacts/*
+!backend/model_artifacts/*
 # Uncomment specific CSVs if you want to track them
 # !backend/model_artifacts/roc_curve.csv
 # !backend/model_artifacts/pr_curve.csv
