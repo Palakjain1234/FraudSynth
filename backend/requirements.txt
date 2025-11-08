@@ -2,11 +2,12 @@ fastapi
 uvicorn[standard]
 pydantic
 python-dotenv
-pymongo[srv]
-motor
 scikit-learn
 lightgbm
 numpy
 pandas
 joblib
-google-auth
+python-multipart
+openpyxl
+xlrd
+xlwt
