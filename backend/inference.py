@@ -1,28 +1,4 @@
 
-# backend/inference.py
-"""
-Inference & Metrics API for FraudSynth
-
-Key endpoints
--------------
-POST  /api/predict        -> score a single JSON payload
-POST  /api/predict-csv    -> score a CSV/XLSX/XLS batch upload
-GET   /api/template       -> download a ready-to-fill CSV header (+ optional example row)
-GET   /api/metrics        -> dashboard metrics (quality check, threshold sweep, sample scores)
-GET   /api/top-risks      -> top risky transactions table
-GET   /api/curves         -> exact ROC/PR curves + top feature importances
-
-Design notes
-------------
-- Centralized helpers for reading artifacts from CSV/XLS/XLSX.
-- Excel support is best-effort. For full support ensure you have:
-  * openpyxl        (for .xlsx)
-  * xlrd>=2.0.1     (for .xls read-only)
-  * xlwt            (optional, for writing legacy .xls)
-- Curves & feature importance are read from pre-computed files if present;
-  otherwise we compute from test_scored.* on the fly.
-"""
-
 from __future__ import annotations
 
 import os

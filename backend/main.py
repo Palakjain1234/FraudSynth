@@ -2,7 +2,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .config import ALLOWED_ORIGINS
-from .auth import router as auth_router
+# from .auth import router as auth_router
 from .inference import router as inference_router
 app = FastAPI(title="FraudSynth API", version="1.0")
 print("CORS allowed origins:", ALLOWED_ORIGINS)
@@ -20,7 +20,7 @@ app.add_middleware(
 
 # Register routes
 
-app.include_router(auth_router)
+# app.include_router(auth_router)
 app.include_router(inference_router)
 
 
