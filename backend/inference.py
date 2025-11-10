@@ -10,7 +10,7 @@ from typing import Dict, Optional, Tuple, List
 import joblib
 import numpy as np
 import pandas as pd
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form,Query
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 from sklearn.metrics import roc_curve, precision_recall_curve, auc, average_precision_score
@@ -18,6 +18,20 @@ from sklearn.metrics import roc_curve, precision_recall_curve, auc, average_prec
 from .config import ARTIFACT_DIR
 from .transforms import fill_and_order_features, to_model_space, FEATURE_ORDER
 from .storage import predictions
+
+# --- add this tiny helper once near the top of inference.py ---
+def _artifact_dir_for(model: Optional[str]) -> str:
+    base = ARTIFACT_DIR
+    if model:
+        cand = os.path.join(os.path.dirname(base), f"model_artifacts_{model}")
+        if os.path.isdir(cand):
+            return cand
+        alt = os.path.join(os.path.dirname(base), "artifacts", model)
+        if os.path.isdir(alt):
+            return alt
+    return base
+
+
 
 # -----------------------------------------------------------------------------
 # Constants & Model
@@ -346,25 +360,49 @@ def template_csv(example: int = 1):
 
     return "\n".join(lines)
 
+# ===============================
+# /api/metrics  (model-aware, graceful fallbacks)
+# ===============================
 @router.get("/metrics")
-async def metrics():
+async def metrics(model: Optional[str] = Query(None)):
     """
-    Dashboard metrics payload:
-      - synthetic_quality_check.*  (first 1000 rows)
-      - threshold_sweep.*
-      - test_scored.* (subset of columns for sample histogram)
+    Returns dashboard metrics for the given model:
+      - synthetic_quality_check.*  (first 1000 rows)  [optional]
+      - threshold_sweep.*                             [optional but used for P/R vs τ]
+      - test_scored.* (subset for histogram)          [optional]
+    If any file is missing, returns an empty list for that section.
     """
-    try:
-        quality = _read_any_table(os.path.join(ARTIFACT_DIR, "synthetic_quality_check")).to_dict(orient="records")
-        thresh = _read_any_table(os.path.join(ARTIFACT_DIR, "threshold_sweep")).to_dict(orient="records")
-        scored_df = _read_any_table(os.path.join(ARTIFACT_DIR, "test_scored"))
-    except FileNotFoundError as e:
-        raise HTTPException(404, str(e))
+    ART_DIR = _artifact_dir_for(model)
 
-    keep = ["Amount", "true_label", "fraud_probability", "model_decision"]
-    keep = [c for c in keep if c in scored_df.columns]
-    scored = scored_df[keep].head(200).to_dict(orient="records")
-    return {"quality": quality[:1000], "threshold": thresh, "samples": scored}
+    # quality (optional)
+    try:
+        quality_df = _read_any_table(os.path.join(ART_DIR, "synthetic_quality_check"))
+        quality = quality_df.to_dict(orient="records")[:1000]
+    except FileNotFoundError:
+        quality = []
+
+    # threshold sweep (optional; also accept your older filename)
+    try:
+        thresh_df = (_read_any_table(os.path.join(ART_DIR, "threshold_sweep")))
+    except FileNotFoundError:
+        # compatibility with precision_recall_vs_threshold.csv base name
+        try:
+            thresh_df = _read_any_table(os.path.join(ART_DIR, "precision_recall_vs_threshold"))
+        except FileNotFoundError:
+            thresh_df = None
+    thresh = thresh_df.to_dict(orient="records") if thresh_df is not None else []
+
+    # samples for histogram (optional)
+    try:
+        scored_df = _read_any_table(os.path.join(ART_DIR, "test_scored"))
+        keep = ["Amount", "true_label", "fraud_probability", "model_decision"]
+        keep = [c for c in keep if c in scored_df.columns]
+        samples = scored_df[keep].head(200).to_dict(orient="records") if keep else []
+    except FileNotFoundError:
+        samples = []
+
+    return {"quality": quality, "threshold": thresh, "samples": samples}
+
 
 @router.get("/top-risks")
 async def top_risks(limit: int = 50):
@@ -383,44 +421,43 @@ async def top_risks(limit: int = 50):
     df = df.sort_values(prob_col, ascending=False).head(limit)
     return {"rows": df[cols].to_dict(orient="records")}
 
+# ===============================
+# /api/curves  (model-aware)
+# ===============================
+from fastapi import Query
+
 @router.get("/curves")
-async def curves():
-    """
-    Returns exact ROC & PR curves and top feature importances.
+async def curves(model: Optional[str] = Query(None)):
+    ART_DIR = _artifact_dir_for(model)
 
-    Preferred source:
-      - ARTIFACT_DIR/roc_curve.(csv|xlsx) with columns: fpr, tpr
-      - ARTIFACT_DIR/pr_curve.(csv|xlsx)  with columns: recall, precision[, ap]
-      - ARTIFACT_DIR/feature_importance.(csv|xlsx) with columns: feature, importance
+    # --- read ROC file
+    roc_df = _read_any_csv_or_xlsx(os.path.join(ART_DIR, "roc_curve"))
 
-    Fallback (auto-compute):
-      - compute ROC/PR from ARTIFACT_DIR/test_scored using columns:
-        true_label, fraud_probability (robust to naming variants)
-      - try to read importances from the trained model if available
-    """
-    # Try direct curve files
-    roc_df = _read_any_csv_or_xlsx(os.path.join(ARTIFACT_DIR, "roc_curve"))
-    pr_df  = _read_any_csv_or_xlsx(os.path.join(ARTIFACT_DIR, "pr_curve"))
-    fi_df  = _read_any_csv_or_xlsx(os.path.join(ARTIFACT_DIR, "feature_importance"))
+    # --- read PR file (try pr_curve, then precision_vs_recall)
+    pr_df = _read_any_csv_or_xlsx(os.path.join(ART_DIR, "pr_curve"))
+    if pr_df is None:
+        pr_df = _read_any_csv_or_xlsx(os.path.join(ART_DIR, "precision_vs_recall"))
+
+    # --- optional: feature importance
+    fi_df = _read_any_csv_or_xlsx(os.path.join(ART_DIR, "feature_importance"))
 
     roc = None
     pr  = None
     feat = None
 
+    # ---- ROC ----
     if roc_df is not None:
         cols = {c.lower(): c for c in roc_df.columns}
         if {"fpr", "tpr"}.issubset(cols):
             fpr = pd.to_numeric(roc_df[cols["fpr"]], errors="coerce").fillna(0.0).tolist()
             tpr = pd.to_numeric(roc_df[cols["tpr"]], errors="coerce").fillna(0.0).tolist()
             try:
-                roc_auc = float(auc(pd.Series(fpr), pd.Series(tpr)))
+                roc_auc = float(auc(np.array(fpr), np.array(tpr)))
             except Exception:
-                try:
-                    roc_auc = float(auc(np.array(fpr), np.array(tpr)))
-                except Exception:
-                    roc_auc = None
+                roc_auc = None
             roc = {"fpr": fpr, "tpr": tpr, "auc": roc_auc}
 
+    # ---- PR ----
     if pr_df is not None:
         cols = {c.lower(): c for c in pr_df.columns}
         if {"recall", "precision"}.issubset(cols):
@@ -434,23 +471,36 @@ async def curves():
                     ap_val = None
             pr = {"recall": recall, "precision": precision, "ap": ap_val}
 
-    # Fallback: compute from test_scored
+    # ---- Fallback from test_scored if needed ----
     if roc is None or pr is None:
-        scored = _read_any_table(os.path.join(ARTIFACT_DIR, "test_scored"))
-        label_col, proba_col = _find_label_proba_cols(scored)
-        y_true = pd.to_numeric(scored[label_col], errors="coerce").fillna(0).astype(int).to_numpy()
-        y_score = pd.to_numeric(scored[proba_col], errors="coerce").fillna(0.0).to_numpy()
+        try:
+            scored = _read_any_table(os.path.join(ART_DIR, "test_scored"))
+            label_col, proba_col = _find_label_proba_cols(scored)
+            y_true  = pd.to_numeric(scored[label_col], errors="coerce").fillna(0).astype(int).to_numpy()
+            y_score = pd.to_numeric(scored[proba_col], errors="coerce").fillna(0.0).to_numpy()
 
-        if roc is None:
-            fpr, tpr, _ = roc_curve(y_true, y_score)
-            roc = {"fpr": fpr.tolist(), "tpr": tpr.tolist(), "auc": float(auc(fpr, tpr))}
-        if pr is None:
-            precision_arr, recall_arr, _ = precision_recall_curve(y_true, y_score)
-            ap_val = float(average_precision_score(y_true, y_score))
-            pr = {"recall": recall_arr.tolist(), "precision": precision_arr.tolist(), "ap": ap_val}
+            if roc is None:
+                fpr, tpr, _ = roc_curve(y_true, y_score)
+                roc = {"fpr": fpr.tolist(), "tpr": tpr.tolist(), "auc": float(auc(fpr, tpr))}
+            if pr is None:
+                p_arr, r_arr, _ = precision_recall_curve(y_true, y_score)
+                ap_val = float(average_precision_score(y_true, y_score))
+                pr = {"recall": r_arr.tolist(), "precision": p_arr.tolist(), "ap": ap_val}
+        except Exception:
+            pass
 
-    # Feature importance
-    if feat is None:
+    # ---- Feature importance (file first, then model attr) ----
+    if fi_df is not None:
+        try:
+            cols = {c.lower(): c for c in fi_df.columns}
+            if {"feature", "importance"}.issubset(cols):
+                fi = fi_df.rename(columns=cols)[["feature", "importance"]]
+                fi["importance"] = pd.to_numeric(fi["importance"], errors="coerce").fillna(0.0)
+                feat = fi.sort_values("importance", ascending=False).head(15).to_dict(orient="records")
+        except Exception:
+            feat = None
+
+    if not feat:
         try:
             if hasattr(MODEL, "feature_importances_"):
                 imps = MODEL.feature_importances_
@@ -460,4 +510,4 @@ async def curves():
         except Exception:
             feat = []
 
-    return {"roc": roc, "pr": pr, "feature_importance": feat}
+    return {"roc": roc, "pr": pr, "feature_importance": feat or []}

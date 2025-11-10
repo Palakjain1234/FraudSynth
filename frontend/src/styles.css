@@ -242,3 +242,14 @@ a { color: inherit; }
   :root { --card-gap:12px; }
   .header { padding:10px 0 14px; }
 }
+/* sub navbar inside Model Analysis page */
+.subnav{
+  display:flex; gap:8px; margin:10px 0 16px;
+  background: rgba(255,255,255,0.05);
+  padding: 6px; border-radius: 12px;
+}
+.subnav-btn{
+  border:none; background:transparent; color:var(--muted);
+  padding:8px 14px; border-radius: 10px; cursor:pointer; font-weight:700;
+}
+.subnav-btn.active, .subnav-btn:hover{ background:rgba(255,255,255,0.08); color:#fff; }

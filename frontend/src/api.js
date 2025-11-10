@@ -1,71 +1,5 @@
-// // src/api.js
 
-// const BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000';
-
-// /**
-//  * Verify Google OAuth token with optional mode.
-//  * @param {string} id_token - Google ID token
-//  * @param {string} [mode] - Optional mode parameter
-//  * @returns {Promise<Object>}
-//  */
-// export async function verifyGoogle(id_token, mode) {
-//   const res = await fetch(`${BASE}/auth/verify`, {
-//     method: 'POST',
-//     headers: { 'Content-Type': 'application/json' },
-//     body: JSON.stringify({ id_token, mode }),
-//   });
-
-//   if (!res.ok) {
-//     const msg = (await res.json()).detail || 'Auth failed';
-//     throw new Error(msg);
-//   }
-//   return res.json();
-// }
-
-// /**
-//  * Predict function for fraud detection or other ML tasks.
-//  * @param {string} userId - ID of the user
-//  * @param {Object} input - Input features for prediction
-//  * @param {number} threshold - Threshold for risk prediction
-//  * @returns {Promise<Object>}
-//  */
-// export async function predict(userId, input, threshold) {
-//   const res = await fetch(`${BASE}/api/predict`, {
-//     method: 'POST',
-//     headers: { 'Content-Type': 'application/json' },
-//     body: JSON.stringify({ user_id: userId, input, threshold }),
-//   });
-
-//   if (!res.ok) {
-//     const msg = (await res.json()).detail || 'Predict failed';
-//     throw new Error(msg);
-//   }
-//   return res.json();
-// }
-
-// /**
-//  * Fetch overall metrics from backend.
-//  * @returns {Promise<Object>}
-//  */
-// export async function getMetrics() {
-//   const res = await fetch(`${BASE}/api/metrics`);
-//   if (!res.ok) throw new Error('Metrics fetch failed');
-//   return res.json();
-// }
-
-// /**
-//  * Fetch top risky users/transactions.
-//  * @param {number} [limit=50] - Maximum number of results
-//  * @returns {Promise<Object>}
-//  */
-// export async function getTopRisks(limit = 50) {
-//   const res = await fetch(`${BASE}/api/top-risks?limit=${limit}`);
-//   if (!res.ok) throw new Error('Top risks fetch failed');
-//   return res.json();
-// }
-// src/api.js
-
-const BASE = 'http://127.0.0.1:8000'
+const BASE = (import.meta?.env?.VITE_API_URL ?? 'http://127.0.0.1:8000').replace(/\/+$/, '')
 
 // --- helpers ---
 async function parseMaybeJson(res) {
@@ -85,18 +19,20 @@ async function handleJson(res, fallbackMsg) {
   return payload
 }
 
-export async function predictCsv(file, threshold) {
+// --- prediction (CSV upload) ---
+// modelId is optional; backend can ignore if not wired yet
+export async function predictCsv(file, threshold, modelId) {
   const fd = new FormData()
-  fd.append('user_id', 'guest')                 // <- hard-coded guest
+  fd.append('user_id', 'guest') // keep guest for now
   if (threshold !== undefined && threshold !== null) {
     fd.append('threshold', String(threshold))
   }
   fd.append('file', file)
 
-  const res = await fetch(`${BASE}/api/predict-csv`, {
-    method: 'POST',
-    body: fd,
-  })
+  let url = `${BASE}/api/predict-csv`
+  if (modelId) url += `?model=${encodeURIComponent(modelId)}`
+
+  const res = await fetch(url, { method: 'POST', body: fd })
   return handleJson(res, 'Batch predict failed')
 }
 
@@ -107,25 +43,31 @@ export async function getTemplateCsv() {
   return res.text()
 }
 
-// --- dashboard metrics ---
-export async function getMetrics() {
-  const res = await fetch(`${BASE}/api/metrics`)
+// --- dashboard metrics (switchable by model) ---
+export async function getMetrics(modelId) {
+  const q = modelId ? `?model=${encodeURIComponent(modelId)}` : ''
+  const res = await fetch(`${BASE}/api/metrics${q}`)
   return handleJson(res, 'Metrics fetch failed')
 }
 
-// --- top risky transactions for the table ---
-export async function getTopRisks(limit = 50) {
-  const res = await fetch(`${BASE}/api/top-risks?limit=${limit}`)
+// --- top risky transactions for the table (switchable by model) ---
+export async function getTopRisks(limit = 50, modelId) {
+  const q = `?limit=${encodeURIComponent(limit)}${modelId ? `&model=${encodeURIComponent(modelId)}` : ''}`
+  const res = await fetch(`${BASE}/api/top-risks${q}`)
   return handleJson(res, 'Top risks fetch failed')
 }
-export async function getCurves() {
-  const res = await fetch(`${BASE}/api/curves`)
+
+// --- exact ROC/PR curves if available (switchable by model) ---
+export async function getCurves(modelId) {
+  const q = modelId ? `?model=${encodeURIComponent(modelId)}` : ''
+  const res = await fetch(`${BASE}/api/curves${q}`)
   if (!res.ok) throw new Error('Curves fetch failed')
   return res.json()
 }
+
+// --- refresh server-side artifacts cache (if you added that endpoint) ---
 export async function refreshArtifacts() {
   const res = await fetch(`${BASE}/api/refresh-artifacts?force=1`, { method: 'POST' })
-  if (!res.ok) throw new Error((await res.json()).detail || 'Refresh failed')
+  if (!res.ok) throw new Error((await parseMaybeJson(res)).detail || 'Refresh failed')
   return res.json()
 }
-
