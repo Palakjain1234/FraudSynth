@@ -17,7 +17,7 @@ from sklearn.metrics import roc_curve, precision_recall_curve, auc, average_prec
 
 from .config import ARTIFACT_DIR
 from .transforms import fill_and_order_features, to_model_space, FEATURE_ORDER
-from .storage import predictions
+
 
 # --- add this tiny helper once near the top of inference.py ---
 def _artifact_dir_for(model: Optional[str]) -> str:
@@ -172,7 +172,6 @@ def _ensure_curve_artifacts_on_startup() -> None:
         except Exception as e:
             print("[WARN] Could not build curve artifacts at startup:", e)
 
-# Try once on import (non-fatal if it fails)
 try:
     _ensure_curve_artifacts_on_startup()
 except Exception as _e:
@@ -215,23 +214,6 @@ async def predict(body: PredictBody):
         decision = int(prob >= thresh)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Inference error: {e}")
-
-    # Best-effort audit log
-    try:
-        await predictions.insert_one({
-            "user_id": body.user_id or "guest",
-            "input_raw": body.input,
-            "input_filled": filled,
-            "time_amount_only": time_amount_only,
-            "scaled_vector": Xm[0].tolist(),
-            "probability": prob,
-            "decision": decision,
-            "threshold": thresh,
-            "created_at": time.time(),
-        })
-    except Exception:
-        pass
-
     return {"probability": prob, "decision": decision, "filled": filled}
 
 @router.post("/predict-csv")
@@ -314,18 +296,6 @@ async def predict_csv(
         out_cols.append("fraud_probability")
     if "model_decision" not in out_cols:
         out_cols.append("model_decision")
-
-    # Batch log (best-effort)
-    try:
-        await predictions.insert_one({
-            "user_id": user_id or "guest",
-            "batch_size": len(out_rows),
-            "threshold": thresh,
-            "created_at": time.time(),
-            "type": "batch_csv",
-        })
-    except Exception:
-        pass
 
     return {"columns": out_cols, "rows": out_rows, "threshold": thresh}
 
